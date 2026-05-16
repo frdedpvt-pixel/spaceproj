@@ -1,3 +1,54 @@
+import time
+import pygame
+import sys
+import math
+class Vector:
+    def __init__(self,x,y):
+        self.xc = x
+        self.yc = y
+
+    def mag(self):
+        m = (self.xc)**2 + (self.yc)**2
+        return m**0.5
+
+    def component(self):
+        m = self.mag()
+        if m == 0:
+            return Vector(0,0)
+        nx = (self.xc)/m
+
+        ny = (self.yc)/m
+
+        return Vector(nx,ny)
+
+    def __mul__(self,scal):
+        nx = (self.xc)*scal
+        ny = (self.yc)*scal
+        return Vector(nx,ny)
+    
+    def __rmul__(self,scal):
+        nx = (self.xc)*scal
+        ny = (self.yc)*scal
+        return Vector(nx,ny)
+    def __add__(self,otheritem):
+        return Vector(self.xc+otheritem.xc, self.yc+otheritem.yc)
+    
+    def __sub__(self,otheritem):
+        return Vector(self.xc-otheritem.xc, self.yc-otheritem.yc)
+
+    def __repr__(self):
+        return f"[{f'{self.xc:.4f}'}i + {f'{self.yc:.4f}'}j]"
+
+class Body:
+    def __init__(self,m,p,v,r,rot=0):
+        self.m = m
+        self.p = p
+        self.v = v
+        self.rot = rot
+        self.r = r
+
+    def update(self,a,dt):
+        self.p,self.v = e_i(self.p,self.v,a,dt)
 collision = 0
 def step_simulation(bodies, dt, thrust):
     a_l = []
@@ -61,7 +112,7 @@ def getgrav(p1,m1,p2,m2):
     r_comp = r.component()
 
     G = 1
-    a = (G*m2)/(mag_r**2)
+    a = (G*m2)/(mag_r**1.2)
     return a*r_comp
 
 
@@ -89,26 +140,33 @@ zoom = 1
 
 sp_bg = pygame.image.load(r'C:\Users\ACER\phyexp\spaceproj\background_space.jpg')
 
+# The Solar System (True Mass Ratios & Stable Satellite Orbit)
+
+# Sun is massive to anchor the system
+sun = Body(1000000, Vector(0, 0), Vector(0, 0), 200)
+
+# Inner Rocky Planets
+mercury = Body(5, Vector(3900, 0), Vector(0, 16.01), 8)
+venus = Body(80, Vector(7200, 0), Vector(0, 11.78), 19)
+earth = Body(100, Vector(10000, 0), Vector(0, 10.00), 20)
+mars = Body(11, Vector(15200, 0), Vector(0, 8.11), 10)
+
+# Outer Gas Giants 
+jupiter = Body(31800, Vector(52000, 0), Vector(0, 4.38), 110)
+saturn = Body(9500, Vector(95800, 0), Vector(0, 3.23), 90)
+uranus = Body(1450, Vector(192000, 0), Vector(0, 2.28), 40)
+neptune = Body(1710, Vector(300000, 0), Vector(0, 1.82), 38)
+
+# ROCKET (Orbiting Earth)
+# Earth's V is 10.00. The local orbit V is 1.58. Total V = 11.58.
+rocket = Body(0.001, Vector(10040, 0), Vector(0, 11.58), 0.1) 
+
 universe = []
-
-sun = Body(100000, Vector(0, 0), Vector(0, 0),50)
-rocket = Body(1, Vector(200, 0), Vector(0, 15),5)
-collision = 0
-# The Solar System (Stable Orbital Data)
-mercury = Body(3, Vector(300, 0), Vector(0, 18.25),20)
-venus = Body(48, Vector(500, 0), Vector(0, 14.14),20)
-earth = Body(59, Vector(750, 0), Vector(0, 11.54),20)
-mars = Body(6, Vector(1100, 0), Vector(0, 9.53),20)
-jupiter = Body(1500, Vector(2500, 0), Vector(0, 6.32),20)
-saturn = Body(1100, Vector(4500, 0), Vector(0, 4.71),20)
-uranus = Body(800, Vector(7000, 0), Vector(0, 3.77),20)
-neptune = Body(900, Vector(10000, 0), Vector(0, 3.16),20)
-
 universe.append(sun)
 universe.append(rocket)
 universe.extend([mercury, venus, earth, mars, jupiter, saturn, uranus, neptune])
 dots = []
-dots = []
+
 thrust = Vector(0,0)
 thrust_power = 0
 flag1 = 1
@@ -133,12 +191,12 @@ while True:
 
     if d[pygame.K_UP]:
         if zoom <= 1:
-            zoom += 0.05
+            zoom += 0.01  # Slower zoom for precision
     elif d[pygame.K_DOWN]:
-        if zoom > 0.20:
-            zoom -=0.05
+        if zoom > 0.001:  # Allow extreme zoom out
+            zoom -= 0.01
         else:
-            zoom = 0.20
+            zoom = 0.001
 
 
     rocket.rot = rocket.rot % 360
@@ -163,9 +221,15 @@ while True:
     if collision == 0:
         thrust = Vector(math.cos(rad_angle) * thrust_power, math.sin(rad_angle) * thrust_power)
     elif collision:
-        thrust_power = 0
-        collision = 1
-        rocket.p = collision_close(universe,rocket).p
+        planet = collision_close(universe, rocket)
+        if planet:
+            rocket.v = Vector(0, 0) # 1. Hard stop
+            diff = rocket.p - planet.p
+            rocket.p = planet.p + diff.component() * (rocket.r + planet.r) # 2. Surface snap
+            
+        # 3. If you throttle up, break the collision lock so you can fly away
+        if thrust_power > 0:
+            collision = 0
 
     oa,ob = int(((rocket.p.xc - cam_x) * zoom) + WIDTH/2),int(((rocket.p.yc - cam_y) * zoom) + HEIGHT/2)
 
@@ -212,7 +276,8 @@ while True:
         draw_y = int(((bod.p.yc - cam_y) * zoom) + HEIGHT/2)
 
 
-        pygame.draw.circle(screen, (240, 240, 240), (draw_x, draw_y), bod.r)
+        draw_r = max(1, int(bod.r * zoom))
+        pygame.draw.circle(screen, (240, 240, 240), (draw_x, draw_y), draw_r)
 
         if bod == rocket:
             line_length = 15
